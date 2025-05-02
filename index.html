@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Dado Realista V2 (Límite Aumentado)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos para el dado realista y la animación (sin cambios) */
+        .scene {
+            width: 100px;
+            height: 100px;
+            perspective: 600px;
+            margin: 40px auto;
+        }
+
+        .cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 2.5s cubic-bezier(0.2, 0.8, 0.3, 1);
+        }
+
+        .face {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            display: grid;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border: 1px solid #ccc;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.15);
+            border-radius: 10px;
+            backface-visibility: hidden;
+            transform-origin: center center -50px;
+        }
+
+        .pip {
+            width: 18px;
+            height: 18px;
+            background-color: #333;
+            border-radius: 50%;
+            align-self: center;
+            justify-self: center;
+            box-shadow: inset 0 0 3px rgba(0,0,0,0.5);
+        }
+
+        /* Posicionamiento de caras */
+        .front  { transform: rotateY(  0deg) translateZ(50px); } /* 1 */
+        .back   { transform: rotateY(180deg) translateZ(50px); } /* 6 */
+        .right  { transform: rotateY( 90deg) translateZ(50px); } /* 4 */
+        .left   { transform: rotateY(-90deg) translateZ(50px); } /* 3 */
+        .top    { transform: rotateX( 90deg) translateZ(50px); } /* 5 */
+        .bottom { transform: rotateX(-90deg) translateZ(50px); } /* 2 */
+
+        /* Layouts de pips */
+        .face-1 { grid-template-areas: ". . ." ". p ." ". . ."; }
+        .face-2 { grid-template-areas: "p . ." ". . ." ". . p"; }
+        .face-3 { grid-template-areas: "p . ." ". p ." ". . p"; }
+        .face-4 { grid-template-areas: "p . p" ". . ." "p . p"; }
+        .face-5 { grid-template-areas: "p . p" ". p ." "p . p"; }
+        .face-6 { grid-template-areas: "p . p" "p . p" "p . p"; }
+
+        /* Asignación de pips */
+        .pip-1 { grid-area: p; }
+        .pip-2-1 { grid-area: 1 / 1; } .pip-2-2 { grid-area: 3 / 3; }
+        .pip-3-1 { grid-area: 1 / 1; } .pip-3-2 { grid-area: 2 / 2; } .pip-3-3 { grid-area: 3 / 3; }
+        .pip-4-1 { grid-area: 1 / 1; } .pip-4-2 { grid-area: 1 / 3; } .pip-4-3 { grid-area: 3 / 1; } .pip-4-4 { grid-area: 3 / 3; }
+        .pip-5-1 { grid-area: 1 / 1; } .pip-5-2 { grid-area: 1 / 3; } .pip-5-3 { grid-area: 2 / 2; } .pip-5-4 { grid-area: 3 / 1; } .pip-5-5 { grid-area: 3 / 3; }
+        .pip-6-1 { grid-area: 1 / 1; } .pip-6-2 { grid-area: 1 / 3; } .pip-6-3 { grid-area: 2 / 1; } .pip-6-4 { grid-area: 2 / 3; } .pip-6-5 { grid-area: 3 / 1; } .pip-6-6 { grid-area: 3 / 3; }
+
+        /* Animación de giro mejorada */
+        @keyframes roll {
+            0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+            20% { transform: rotateX(370deg) rotateY(540deg) rotateZ(180deg); }
+            50% { transform: rotateX(730deg) rotateY(900deg) rotateZ(540deg); }
+            80% { transform: rotateX(1090deg) rotateY(1440deg) rotateZ(720deg); }
+            100% { /* Transformación final aplicada con JS */ }
+        }
+
+        .rolling {
+            animation: roll 2.8s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
+        }
+
+        /* Estilos tabla sin scroll */
+        .results-table-container {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            margin-top: 1rem;
+            overflow-x: auto;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen font-sans p-4">
+
+    <h1 class="text-3xl font-bold mb-6 text-gray-800 text-center">Simulador de Dado</h1>
+
+    <div id="initialChoice" class="text-center">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">¿Qué deseas simular?</h2>
+        <button id="selectSingleRoll" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75 transition duration-300 ease-in-out m-2">
+            Lanzamiento Único
+        </button>
+        <button id="selectMultipleRolls" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75 transition duration-300 ease-in-out m-2">
+            Múltiples Lanzamientos
+        </button>
+    </div>
+
+    <div id="simulatorContainer" class="hidden w-full max-w-4xl">
+        <div class="flex flex-col md:flex-row items-start justify-center gap-8">
+
+            <div class="flex flex-col items-center w-full md:w-1/2">
+                <div class="scene">
+                    <div class="cube" id="cube">
+                        <div class="face front face-1"><span class="pip pip-1"></span></div>
+                        <div class="face back face-6"><span class="pip pip-6-1"></span><span class="pip pip-6-2"></span><span class="pip pip-6-3"></span><span class="pip pip-6-4"></span><span class="pip pip-6-5"></span><span class="pip pip-6-6"></span></div>
+                        <div class="face right face-4"><span class="pip pip-4-1"></span><span class="pip pip-4-2"></span><span class="pip pip-4-3"></span><span class="pip pip-4-4"></span></div>
+                        <div class="face left face-3"><span class="pip pip-3-1"></span><span class="pip pip-3-2"></span><span class="pip pip-3-3"></span></div>
+                        <div class="face top face-5"><span class="pip pip-5-1"></span><span class="pip pip-5-2"></span><span class="pip pip-5-3"></span><span class="pip pip-5-4"></span><span class="pip pip-5-5"></span></div>
+                        <div class="face bottom face-2"><span class="pip pip-2-1"></span><span class="pip pip-2-2"></span></div>
+                    </div>
+                </div>
+                <p id="result" class="mt-2 text-xl font-medium text-gray-700 h-8"></p>
+
+                <div id="singleRollControls" class="hidden text-center mt-4">
+                    <button id="rollButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75 transition duration-300 ease-in-out disabled:opacity-50">
+                        Lanzar Dado
+                    </button>
+                </div>
+                <div id="multipleRollsControls" class="hidden mt-6 flex flex-col sm:flex-row items-center gap-2">
+                    <label for="numRollsInput" class="text-gray-700">Número de lanzamientos:</label>
+                    <input type="number" id="numRollsInput" value="10" min="1" max="99999999" class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 w-28 text-center"> <button id="simulateButton" class="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75 transition duration-300 ease-in-out disabled:opacity-50">
+                        Simular
+                    </button>
+                </div>
+                 <button id="restartButton" class="mt-6 px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg shadow-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 transition duration-300 ease-in-out">
+                    Reiniciar
+                </button>
+            </div>
+
+            <div class="w-full md:w-1/2 mt-8 md:mt-0">
+                 <h2 class="text-2xl font-bold mb-2 text-gray-800 text-center">Resumen de Resultados</h2>
+                 <div id="resultsTableContainer" class="results-table-container bg-white shadow rounded-lg w-full">
+                     <p class="p-4 text-gray-500 text-center">Selecciona un tipo de simulación.</p>
+                 </div>
+                 <p id="totalRolls" class="mt-2 text-sm text-gray-600 text-center font-semibold"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Referencias a elementos HTML (sin cambios)
+        const initialChoiceSection = document.getElementById('initialChoice');
+        const simulatorContainer = document.getElementById('simulatorContainer');
+        const selectSingleRollButton = document.getElementById('selectSingleRoll');
+        const selectMultipleRollsButton = document.getElementById('selectMultipleRolls');
+        const singleRollControls = document.getElementById('singleRollControls');
+        const multipleRollsControls = document.getElementById('multipleRollsControls');
+        const restartButton = document.getElementById('restartButton');
+        const cube = document.getElementById('cube');
+        const rollButton = document.getElementById('rollButton');
+        const resultDisplay = document.getElementById('result');
+        const numRollsInput = document.getElementById('numRollsInput');
+        const simulateButton = document.getElementById('simulateButton');
+        const resultsTableContainer = document.getElementById('resultsTableContainer');
+        const totalRollsDisplay = document.getElementById('totalRolls');
+
+        // Estado (sin cambios)
+        let isRolling = false;
+        let currentMode = null;
+        let cumulativeResults = [];
+
+        // --- Funciones (sin cambios en lógica principal, solo validación) ---
+
+        function getRandomNumber() {
+            return Math.floor(Math.random() * 6) + 1;
+        }
+
+        function updateCubeRotation(result, onAnimationEndCallback) {
+            cube.classList.remove('rolling');
+            void cube.offsetWidth;
+
+            let rotateX = 0, rotateY = 0;
+            switch (result) {
+                case 1: rotateX = 0; rotateY = 0; break;
+                case 6: rotateX = 0; rotateY = 180; break;
+                case 4: rotateX = 0; rotateY = -90; break;
+                case 3: rotateX = 0; rotateY = 90; break;
+                case 5: rotateX = -90; rotateY = 0; break;
+                case 2: rotateX = 90; rotateY = 0; break;
+            }
+
+            const randomX = (Math.floor(Math.random() * 3) + 2) * 360;
+            const randomY = (Math.floor(Math.random() * 3) + 2) * 360;
+            const randomZ = (Math.floor(Math.random() * 2) + 1) * 180;
+
+            cube.classList.add('rolling');
+            cube.style.transform = `rotateX(${randomX}deg) rotateY(${randomY}deg) rotateZ(${randomZ}deg)`;
+            resultDisplay.textContent = 'Lanzando...';
+
+            const animationDuration = 2800;
+            setTimeout(() => {
+                cube.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+                resultDisplay.textContent = `Resultado: ${result}`;
+                isRolling = false;
+                if (onAnimationEndCallback) {
+                    onAnimationEndCallback();
+                }
+            }, animationDuration);
+        }
+
+        function setControlsDisabled(disabled) {
+             if (currentMode === 'single') {
+                 rollButton.disabled = disabled;
+             } else if (currentMode === 'multiple') {
+                 simulateButton.disabled = disabled;
+                 numRollsInput.disabled = disabled;
+             }
+            selectSingleRollButton.disabled = disabled;
+            selectMultipleRollsButton.disabled = disabled;
+            restartButton.disabled = disabled;
+        }
+
+        function generateSummaryTable(results) {
+            resultsTableContainer.innerHTML = '';
+            totalRollsDisplay.textContent = '';
+
+            if (!results || results.length === 0) {
+                 resultsTableContainer.innerHTML = '<p class="p-4 text-gray-500 text-center">No hay resultados.</p>';
+                 return;
+            }
+
+            const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+            results.forEach(result => {
+                if (counts.hasOwnProperty(result)) {
+                    counts[result]++;
+                }
+            });
+
+            const table = document.createElement('table');
+            table.className = 'min-w-full divide-y divide-gray-200';
+
+            const thead = document.createElement('thead');
+            thead.className = 'bg-gray-50';
+            thead.innerHTML = `
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cara</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cantidad</th>
+                </tr>
+            `;
+
+            const tbody = document.createElement('tbody');
+            tbody.className = 'bg-white divide-y divide-gray-200';
+
+            for (let face = 1; face <= 6; face++) {
+                const row = document.createElement('tr');
+                const faceHTML = `<span class="inline-flex items-center justify-center w-6 h-6 border border-gray-400 rounded bg-white shadow-sm text-lg font-bold">${face}</span>`;
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">${faceHTML}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${counts[face]}</td>
+                `;
+                tbody.appendChild(row);
+            }
+
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            resultsTableContainer.appendChild(table);
+
+            totalRollsDisplay.textContent = `Total de lanzamientos: ${results.length}`;
+        }
+
+        function showSimulator(mode) {
+            currentMode = mode;
+            cumulativeResults = [];
+            initialChoiceSection.classList.add('hidden');
+            simulatorContainer.classList.remove('hidden');
+            resultsTableContainer.innerHTML = '<p class="p-4 text-gray-500 text-center">Listo para lanzar.</p>';
+            totalRollsDisplay.textContent = '';
+            resultDisplay.textContent = '';
+
+            if (mode === 'single') {
+                singleRollControls.classList.remove('hidden');
+                multipleRollsControls.classList.add('hidden');
+            } else if (mode === 'multiple') {
+                singleRollControls.classList.add('hidden');
+                multipleRollsControls.classList.remove('hidden');
+            }
+             setControlsDisabled(false);
+             resetDicePosition();
+        }
+
+        function showInitialChoice() {
+            currentMode = null;
+            cumulativeResults = [];
+            initialChoiceSection.classList.remove('hidden');
+            simulatorContainer.classList.add('hidden');
+            selectSingleRollButton.disabled = false;
+            selectMultipleRollsButton.disabled = false;
+            restartButton.disabled = true;
+        }
+
+        function resetDicePosition() {
+            cube.classList.remove('rolling');
+            cube.style.transition = 'none';
+            cube.style.transform = `rotateX(0deg) rotateY(0deg)`;
+            void cube.offsetWidth;
+            cube.style.transition = 'transform 2.5s cubic-bezier(0.2, 0.8, 0.3, 1)';
+            resultDisplay.textContent = '';
+        }
+
+        // --- Event Listeners ---
+
+        selectSingleRollButton.addEventListener('click', () => showSimulator('single'));
+        selectMultipleRollsButton.addEventListener('click', () => showSimulator('multiple'));
+
+        restartButton.addEventListener('click', () => {
+            if (isRolling) return;
+            showInitialChoice();
+        });
+
+        // Lanzar 1 Dado (Modo Único)
+        rollButton.addEventListener('click', () => {
+            if (isRolling) return;
+            isRolling = true;
+            setControlsDisabled(true);
+
+            const result = getRandomNumber();
+            cumulativeResults.push(result);
+
+            updateCubeRotation(result, () => {
+                setControlsDisabled(false);
+                generateSummaryTable(cumulativeResults);
+            });
+        });
+
+        // Simular Múltiples
+        simulateButton.addEventListener('click', () => {
+            if (isRolling) return;
+
+            const numRolls = parseInt(numRollsInput.value);
+            // *** CAMBIO: Actualizada la validación y el mensaje de alerta ***
+            const maxRolls = 99999999;
+            if (isNaN(numRolls) || numRolls <= 0 || numRolls > maxRolls) {
+                alert(`Ingresa un número válido de lanzamientos (1-${maxRolls.toLocaleString('es-MX')}).`); // Formato localizado
+                return;
+            }
+
+            isRolling = true;
+            setControlsDisabled(true);
+            resultsTableContainer.innerHTML = '<p class="p-4 text-gray-500 text-center">Simulando...</p>';
+            totalRollsDisplay.textContent = '';
+
+            cumulativeResults = [];
+            // Considerar mostrar un indicador de progreso para números muy grandes
+            // (Implementación básica por ahora)
+            console.log(`Iniciando simulación de ${numRolls.toLocaleString('es-MX')} lanzamientos...`);
+            // Podría bloquear el navegador con números extremadamente altos.
+            // Una solución más avanzada usaría Web Workers.
+            for (let i = 0; i < numRolls; i++) {
+                cumulativeResults.push(getRandomNumber());
+            }
+            console.log("Simulación completada.");
+
+
+            generateSummaryTable(cumulativeResults);
+
+            if (cumulativeResults.length > 0) {
+                const lastResult = cumulativeResults[cumulativeResults.length - 1];
+                updateCubeRotation(lastResult, () => {
+                    setControlsDisabled(false);
+                });
+            } else {
+                setControlsDisabled(false);
+                isRolling = false;
+                resultsTableContainer.innerHTML = '<p class="p-4 text-gray-500 text-center">No se realizaron lanzamientos.</p>';
+            }
+        });
+
+        // Carga inicial
+        window.addEventListener('load', () => {
+            showInitialChoice();
+            resetDicePosition();
+        });
+
+    </script>
+
+</body>
+</html>
